@@ -1,255 +1,243 @@
-<!---
-Copyright (c) 2011-2012 Matthew Walker
+/**
+ * Copyright (c) 2011-2012 Matthew Walker
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the 'Software'), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED 'AS IS', WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ *
+ */
 
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the 'Software'), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED 'AS IS', WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
- --->
-
-<!---
-cfstatsd is a ColdFusion client for StatsD (https://github.com/etsy/statsd)
-
-More info on StatsD:
-
-http://codeascraft.etsy.com/2011/02/15/measure-anything-measure-everything/
-
-Use it as follows:
-
-<cfset statsd = CreateObject("component","cfstatsd").init('statsd.example.com', 8125) />
-
-<cfset statsd.increment("testing.cf.increment") />
-<cfset statsd.increment("testing.cf.increment-magnitude", 10) />
-<cfset statsd.increment("testing.cf.increment-sampled", 1, .2) />
-<cfset statsd.incrementMulti(1, 1, "testing.cf.increment-1", "testing.cf.increment-2", "testing.cf.increment-3") />
-
-<cfset statsd.decrement("testing.cf.decrement") />
-<cfset statsd.decrement("testing.cf.decrement-magnitude", 10) />
-<cfset statsd.decrement("testing.cf.decrement-sampled", 1, .2) />
-<cfset statsd.decrementMulti(1, 1, "testing.cf.decrement-1", "testing.cf.decrement-2", "testing.cf.decrement-3") />
-
-<cfset statsd.timing("testing.cf.timing", 1024) />
-<cfset statsd.timing("testing.cf.timing-sampled", 1024, .2) />
-
-<cfset statsd.gauge("testing.cf.gauge", 8675) />
-
-Cheers!
- --->
-
-<cfcomponent name="cfstatsd" displayname="statsd controller" hint="This CFC handles communication with a statsd daemon">
-
-	<cfset this.host = "">
-	<cfset this.port = "">
-	<cfset this._channel = "">
-	<cfset this._address = "">
+/**
+ * @name cfstatsd
+ * @displayname statsd controller
+ * @hint This CFC handles communication with a statsd daemon
+ */
+component accessors="true" {
 
 
-	<cffunction name="init" access="public" returntype="Any" output="no">
-		<cfargument name="host" type="string" required="true" />
-		<cfargument name="port" type="numeric" required="false" default="8125" />
-
-		<cfset var _host = "" />
-		<cfset this.host = arguments.host />
-		<cfset this.port = arguments.port />
-
-		<cfset this._channel = createObject('java','java.nio.channels.DatagramChannel').open() />
-		<cfset _host = createObject('java','java.net.InetAddress').getByName(this.host) />
-		<cfset this._address = createObject('java','java.net.InetSocketAddress').init(_host,this.port) />
-
-		<cfreturn this>
-	</cffunction>
+    property name="host" setter="false";
+    property name="port" setter="false";
+    property name="channel" setter="false";
+    property name="address" setter="false";
 
 
-	<cffunction name="increment" access="public" returntype="boolean" output="no">
-		<cfargument name="key" type="string" required="true" />
-		<cfargument name="magnitude" type="numeric" required="false" default="1" />
-		<cfargument name="sampleRate" type="numeric" required="false" default="1" />
+    public cfstatsd function init(required string host, numeric port=8125)
+    {
+        variables.host = arguments.host;
+        variables.port = arguments.port;
 
-		<cfreturn incrementMulti(arguments.magnitude, arguments.sampleRate, arguments.key) />
-	</cffunction>
+        this.createChannel();
 
+        return this;
 
-	<cffunction name="incrementMulti" access="public" returntype="boolean" output="no">
-		<cfargument name="magnitude" type="numeric" required="true" />
-		<cfargument name="sampleRate" type="numeric" required="true" />
-		<cfargument name="keys" type="any" required="true" />
-
-		<cfset var stats = ArrayNew(1) />
-
-		<!--- Treat non-named arguments as java-style varargs arguments (ex. String... stats) --->
-		<cfset var namedArgumentCount = 3 />
-		<cfset var keysArray = ArrayNew(1) />
-		<cfif isArray(arguments.keys)>
-			<cfset keysArray = arguments.keys />
-		<cfelseif isSimpleValue(arguments.keys)>
-			<cfset ArrayAppend(keysArray, arguments.keys) />
-			<cfif ArrayLen(arguments) GT namedArgumentCount>
-				<cfloop from="#(namedArgumentCount + 1)#" to="#ArrayLen(arguments)#" index="i">
-					<cfif isSimpleValue(arguments[i])>
-						<cfset ArrayAppend(keysArray, arguments[i]) />
-					</cfif>
-				</cfloop>
-			</cfif>
-		<cfelse>
-			<cfthrow type="InvalidArgumentTypeException"
-				message="The keys argument passed to the incrementMulti method is not an array or one or more strings." />
-		</cfif>
-
-		<cfloop from="1" to="#arrayLen(keysArray)#" index="i">
-			<cfset ArrayAppend(stats, keysArray[i] & ":" & arguments.magnitude & "|c") />
-		</cfloop>
-
-		<cfreturn send(arguments.sampleRate, stats) />
-	</cffunction>
+    }
 
 
-	<cffunction name="decrement" access="public" returntype="boolean" output="no">
-		<cfargument name="key" type="string" required="true" />
-		<cfargument name="magnitude" type="numeric" required="false" default="1" />
-		<cfargument name="sampleRate" type="numeric" required="false" default="1" />
+    public void function createChannel()
+    {
+        var inetAddress = createObject("java", "java.net.InetAddress").getByName(variables.host);
 
-		<cfreturn decrementMulti(arguments.magnitude, arguments.sampleRate, arguments.key) />
-	</cffunction>
+        variables.channel = createObject("java", "java.nio.channels.DatagramChannel").open();
+        variables.address = createObject("java", "java.net.InetSocketAddress").init(inetAddress, variables.port);
 
-
-	<cffunction name="decrementMulti" access="public" returntype="boolean" output="no">
-		<cfargument name="magnitude" type="numeric" required="true" />
-		<cfargument name="sampleRate" type="numeric" required="true" />
-		<cfargument name="keys" type="any" required="true" />
-
-		<!--- Treat non-named arguments as java-style varargs arguments (ex. String... stats) --->
-		<cfset var namedArgumentCount = 3 />
-		<cfset var keysArray = ArrayNew(1) />
-		<cfif isArray(arguments.keys)>
-			<cfset keysArray = arguments.keys />
-		<cfelseif isSimpleValue(arguments.keys)>
-			<cfset ArrayAppend(keysArray, arguments.keys) />
-			<cfif ArrayLen(arguments) GT namedArgumentCount>
-				<cfloop from="#(namedArgumentCount + 1)#" to="#ArrayLen(arguments)#" index="i">
-					<cfif isSimpleValue(arguments[i])>
-						<cfset ArrayAppend(keysArray, arguments[i]) />
-					</cfif>
-				</cfloop>
-			</cfif>
-		<cfelse>
-			<cfthrow type="InvalidArgumentTypeException"
-				message="The keys argument passed to the decrementMulti method is not an array or one or more strings." />
-		</cfif>
-
-		<cfif arguments.magnitude GT 0>
-			<cfset arguments.magnitude = -arguments.magnitude />
-		</cfif>
-
-		<cfreturn incrementMulti(arguments.magnitude, arguments.sampleRate, keysArray) />
-	</cffunction>
+    }
 
 
-	<cffunction name="timing" access="public" returntype="boolean" output="no">
-		<cfargument name="key" type="string" required="true" />
-		<cfargument name="value" type="numeric" required="true" />
-		<cfargument name="sampleRate" type="numeric" required="false" default="1" />
-
-		<cfreturn send(arguments.sampleRate, arguments.key & ":" & arguments.value & "|ms") />
-	</cffunction>
+    public boolean function increment(required string key, numeric magnitude=1, numeric sampleRate=1)
+    {
+        return this.incrementMulti(arguments.magnitude, arguments.sampleRate, arguments.key);
+    }
 
 
-	<cffunction name="gauge" access="public" returntype="boolean" output="no">
-		<cfargument name="key" type="string" required="true" />
-		<cfargument name="value" type="numeric" required="true" />
+    public boolean function incrementMulti(required numeric magnitude, required numeric sampleRate, required keys)
+    {
+        var stats = [];
+        var namedArgumentCount = 3; // Treat non-named arguments as java-style varargs arguments (ex. String... stats)
+        var keysArray = [];
 
-		<cfreturn send(1.0, arguments.key & ":" & arguments.value & "|g") />
-	</cffunction>
+        if (isArray(arguments.keys)) {
+            keysArray = arguments.keys;
 
+        } else if (isSimpleValue(arguments.keys)) {}
+            arrayAppend(keysArray, arguments.keys);
 
-	<cffunction name="send" access="private" returntype="boolean" output="no">
-		<cfargument name="sampleRate" type="numeric" required="true" />
-		<cfargument name="stats" type="any" required="true" />
+            if (arguments.len() > namedArgumentCount) {
+                for (var i=namedArgumentCount + 1; i<=arrayLen(arguments); i++) {
+                    if (isSimpleValue(arguments[i])) {
+                        arrayAppend(keysArray, arguments[i]);
+                    }
+                }
+            }
 
-		<!--- Treat non-named arguments as java-style varargs arguments (ex. String... stats) --->
-		<cfset var namedArgumentCount = 2 />
-		<cfset var statsArray = ArrayNew(1) />
-		<cfset var retval = false />
-		<cfset var i = 1 />
+        } else {
+            throw(type="InvalidArgumentTypeException", message="The keys argument passed to the incrementMulti method is not an array or one or more strings.");
 
-		<cfif isArray(arguments.stats)>
-			<cfset statsArray = arguments.stats />
-		<cfelseif isSimpleValue(arguments.stats)>
-			<cfset ArrayAppend(statsArray, arguments.stats) />
-			<cfif ArrayLen(arguments) GT namedArgumentCount>
-				<cfloop from="#(namedArgumentCount + 1)#" to="#ArrayLen(arguments)#" index="i">
-					<cfif isSimpleValue(arguments[i])>
-						<cfset ArrayAppend(statsArray, arguments[i]) />
-					</cfif>
-				</cfloop>
-			</cfif>
-		<cfelse>
-			<cfthrow type="InvalidArgumentTypeException"
-				message="The stats argument passed to the send method is not an array or one or more strings." />
-		</cfif>
+        }
 
-		<cfscript>
-			// this code borrows heavily from StatsdClient.java
-			retval = false;
-			if (arguments.sampleRate LT 1.0) {
-				for (i = 1; i LTE ArrayLen(statsArray); i = i + 1) {
-					if (rand() LTE arguments.sampleRate) {
-						stat = statsArray[i] & "|@" & arguments.sampleRate;
-						if (doSend(stat)) {
-							retval = true;
-						}
-					}
-				}
-			} else {
-				for (i = 1; i LTE ArrayLen(statsArray); i = i + 1) {
-					if (doSend(statsArray[i])) {
-						retval = true;
-					}
-				}
-			}
-			return retval;
-		</cfscript>
-	</cffunction>
+        for (var i=1; i<=arrayLen(keysArray); i++) {
+            arrayAppend(stats, keysArray[i] & ":" & arguments.magnitude & "|c");
+        }
+
+        return this.send(arguments.sampleRate, stats);
+
+    }
 
 
-	<cffunction name="doSend" access="private" returntype="boolean" output="no">
-		<cfargument name="stat" type="string" required="true" />
+    public boolean function decrement(required string key, numeric magnitude, numeric sampleRate)
+    {
+        return this.decrementMulti(arguments.magnitude, arguments.sampleRate, arguments.key);
+    }
 
-		<cfset var data = "" />
-		<cfset var byteBuffer = "" />
-		<cfset var buff = "" />
-		<cfset var nbSentBytes = "" />
 
-		<cftry>
-			<cfset data = arguments.stat.getBytes("utf-8") />
-			<cfset byteBuffer = createObject('java','java.nio.ByteBuffer') />
-			<cfset buff = byteBuffer.wrap(data) />
-			<cfset nbSentBytes = this._channel.send(buff, this._address) />
+    public boolean function decrementMulti(required numeric magnitude, required numeric sampleRate, required keys)
+    {
+        var namedArgumentCount = 3; // Treat non-named arguments as java-style varargs arguments (ex. String... stats)
+        var keysArray = [];
 
-			<cfif nbSentBytes EQ Len(data)>
-				<cfreturn true />
-			<cfelse>
-				<cflog text="cfstatsd: Could not entirely send stat #arguments.stat# to host #this.host#:#this.port#.  Only sent #nbSentBytes# out of #Len(data)# bytes" type="Warning" log="Application" />
-			</cfif>
+        if (isArray(arguments.keys)) {
+            keysArray = arguments.keys;
 
-			<cfcatch type="Any">
-				<cflog text="cfstatsd: Could not send stat #arguments.stat# to host #this.host#:#this.port#" type="Warning" log="Application" />
-			</cfcatch>
-		</cftry>
+        } else if (isSimpleValue(arguments.keys)) {
+            arrayAppend(keysArray, arguments.keys);
 
-		<cfreturn false />
-	</cffunction>
+            if (arrayLen(arguments) gt namedArgumentCount) {
+                for (var i=namedArgumentCount + 1; i<=arrayLen(arguments); i++) {
+                    if (isSimpleValue(arguments[i])) {
+                        arrayAppend(keysArray, arguments[i]);
+                    }
+                }
+            }
 
-</cfcomponent>
+        } else {
+            throw(type="InvalidArgumentTypeException",
+                message="The keys argument passed to the decrementMulti method is not an array or one or more strings.");
+
+        }
+
+        if (arguments.magnitude > 0) {
+            arguments.magnitude = -arguments.magnitude;
+        }
+
+        return this.incrementMulti(arguments.magnitude, arguments.sampleRate, keysArray);
+
+    }
+
+
+    public boolean function timing(required string key, required numeric value, numeric sampleRate=1)
+    {
+        return this.send(arguments.sampleRate, arguments.key & ":" & arguments.value & "|ms");
+    }
+
+
+    public boolean function gauge(required string key, required numeric value)
+    {
+        return this.send(1.0, arguments.key & ":" & arguments.value & "|g");
+    }
+
+
+    private boolean function send(required numeric sampleRate, required stats)
+    {
+        var namedArgumentCount = 2; // Treat non-named arguments as java-style varargs arguments (ex. String... stats)
+        var statsArray = [];
+        var retval = false;
+
+        if (isArray(arguments.stats)) {
+            statsArray = arguments.stats;
+
+        } else if (isSimpleValue(arguments.stats)) {
+            arrayAppend(statsArray, arguments.stats);
+
+            if (arrayLen(arguments) GT namedArgumentCount) {}
+                for (var i=namedArgumentCount + 1; i<= arrayLen(arguments); i++) {
+                    if (isSimpleValue(arguments[i])) {
+                        arrayAppend(statsArray, arguments[i]);
+                    }
+                }
+            }
+
+        } else {
+            throw(type="InvalidArgumentTypeException",
+                message="The stats argument passed to the send method is not an array or one or more strings.");
+
+        }
+
+        /* this code borrows heavily from StatsdClient.java */
+
+        var retval = false;
+
+        if (arguments.sampleRate < 1.0) {
+
+            for (var i=1; i<=arrayLen(statsArray); i++) {
+
+                if (rand() <= arguments.sampleRate) {
+
+                    stat = statsArray[i] & "|@" & arguments.sampleRate;
+
+                    if (this.doSend(stat)) {
+                        retval = true;
+                    }
+
+                }
+
+            }
+
+        } else {
+
+            for (var i=1; i<=arrayLen(statsArray); i++) {
+
+                if (this.doSend(statsArray[i])) {
+                    retval = true;
+                }
+
+            }
+
+        }
+
+        return retval;
+
+    }
+
+
+    private boolean function doSend(required string stat)
+    {
+        var data = "";
+        var byteBuffer = "";
+        var buff = "";
+        var nbSentBytes = "";
+
+        try {
+            data = arguments.stat.getBytes("utf-8");
+            byteBuffer = createObject("java", "java.nio.ByteBuffer");
+            buff = byteBuffer.wrap(data);
+            nbSentBytes = variables.channel.send(buff, variables.address);
+
+            if (nbSentBytes == len(data)) {
+                return true;
+            } else {
+                log(text="cfstatsd: Could not entirely send stat #arguments.stat# to host #variables.host#:#variables.port#. Only sent #nbSentBytes# out of #len(data)# bytes" type="Warning" log="Application");
+            }
+        }
+        catch type="Any" {
+            log(text="cfstatsd: Could not send stat #arguments.stat# to host #variables.host#:#variables.port#" type="Warning" log="Application");
+        }
+
+        return false;
+
+    }
+
+
+}
