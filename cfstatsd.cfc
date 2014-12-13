@@ -72,7 +72,7 @@ component accessors="true" {
         if (isArray(arguments.keys)) {
             keysArray = arguments.keys;
 
-        } else if (isSimpleValue(arguments.keys)) {}
+        } else if (isSimpleValue(arguments.keys)) {
             arrayAppend(keysArray, arguments.keys);
 
             if (arguments.len() > namedArgumentCount) {
@@ -161,7 +161,7 @@ component accessors="true" {
         } else if (isSimpleValue(arguments.stats)) {
             arrayAppend(statsArray, arguments.stats);
 
-            if (arrayLen(arguments) GT namedArgumentCount) {}
+            if (arrayLen(arguments) GT namedArgumentCount) {
                 for (var i=namedArgumentCount + 1; i<= arrayLen(arguments); i++) {
                     if (isSimpleValue(arguments[i])) {
                         arrayAppend(statsArray, arguments[i]);
@@ -228,11 +228,11 @@ component accessors="true" {
             if (nbSentBytes == len(data)) {
                 return true;
             } else {
-                log(text="cfstatsd: Could not entirely send stat #arguments.stat# to host #variables.host#:#variables.port#. Only sent #nbSentBytes# out of #len(data)# bytes" type="Warning" log="Application");
+                writeLog(text="cfstatsd: Could not entirely send stat #arguments.stat# to host #variables.host#:#variables.port#. Only sent #nbSentBytes# out of #len(data)# bytes", type="Warning", log="Application");
             }
         }
-        catch type="Any" {
-            log(text="cfstatsd: Could not send stat #arguments.stat# to host #variables.host#:#variables.port#" type="Warning" log="Application");
+        catch (any e) {
+            writeLog(text="cfstatsd: Could not send stat #arguments.stat# to host #variables.host#:#variables.port#", type="Warning", log="Application");
         }
 
         return false;
